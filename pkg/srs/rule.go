@@ -1,59 +1,75 @@
 package srs
 
-import "C"
-import "C"
-import "C"
-import "C"
-import "C"
-import "C"
 import (
 	"encoding/json"
-	"errors"
+	"fmt"
 
 	"github.com/imduaky/ruleset/pkg/internal/singjson"
 )
 
 type Rule struct {
-	Type           string       `json:"type,omitempty"`
-	DefaultOptions *DefaultRule `json:"-"`
-	LogicalOptions *LogicalRule `json:"-"`
+	Type           RuleType    `json:"type,omitempty"`
+	DefaultOptions DefaultRule `json:"-"`
+	LogicalOptions LogicalRule `json:"-"`
 }
 
-type noMethodRule Rule
+type defaultTypeRule struct {
+	DefaultRule
 
-func (r Rule) MarshalJSON() ([]byte, error) {
-	var v any
+	Type RuleType `json:"type,omitempty"` // should be empty
+}
+
+type logicalTypeRule struct {
+	LogicalRule
+
+	Type RuleType `json:"type,omitempty"` // should be "logical"
+}
+
+func (r *Rule) MarshalJSON() ([]byte, error) {
 	switch r.Type {
-	case RuleTypeDefault, "":
-		v = r.DefaultOptions
+	case RuleTypeDefault:
+		return json.Marshal(defaultTypeRule{DefaultRule: r.DefaultOptions, Type: RuleTypeDefault})
 	case RuleTypeLogical:
-		v = r.LogicalOptions
+		return json.Marshal(logicalTypeRule{LogicalRule: r.LogicalOptions, Type: RuleTypeLogical})
 	default:
-		return nil, errors.New("unknown rule type: " + r.Type)
+		return nil, fmt.Errorf("unknown rule type: %s", r.Type)
 	}
-
-	return json.Marshal(v)
 }
 
-func (r *Rule) UnmarshalJSON(bytes []byte) error {
-	err := json.Unmarshal(bytes, (*noMethodRule)(r))
+func (r *Rule) UnmarshalJSON(data []byte) error {
+	type typedRule struct {
+		Type RuleType `json:"type,omitempty"`
+	}
+	var typedRuleObject typedRule
+
+	err := json.Unmarshal(data, &typedRuleObject)
 	if err != nil {
 		return err
 	}
-	var v any
-	switch r.Type {
-	case "", RuleTypeDefault:
-		r.Type = C.RuleTypeDefault
-		v = new(DefaultRule)
+
+	newRule := new(Rule)
+	newRule.Type = typedRuleObject.Type
+
+	switch newRule.Type {
+	case RuleTypeDefault:
+		defaultRule := new(DefaultRule)
+		err := json.Unmarshal(data, &defaultRule)
+		if err != nil {
+			return err
+		}
+		newRule.DefaultOptions = *defaultRule
 	case RuleTypeLogical:
-		v = new(LogicalRule)
+		logicalRule := new(LogicalRule)
+		err := json.Unmarshal(data, &logicalRule)
+		if err != nil {
+			return err
+		}
+		newRule.LogicalOptions = *logicalRule
 	default:
-		return errors.New("unknown rule type: " + r.Type)
+		return fmt.Errorf("unknown rule type: %s", newRule.Type)
 	}
-	err = json.Unmarshal(bytes, v)
-	if err != nil {
-		return err
-	}
+
+	*r = *newRule
 	return nil
 }
 
@@ -85,7 +101,7 @@ type DefaultRule struct {
 	WIFIBSSID            singjson.Listable[string]              `json:"wifi_bssid,omitempty"`
 
 	// In sing-box , NetworkInterfaceAddress will use a linkedhashmap (ordered-map) to unmarshal, marshal.
-	// but I think it is not important if the map is ordered, so we just use go map here.
+	// but I think it is not important if the map is ordered, so I just use go map here.
 	// https://github.com/SagerNet/sing-box/blob/b6c416b0482a2d2391470d70ce518abff3ba51f8/option/rule_set.go#L209
 	NetworkInterfaceAddress map[InterfaceType]singjson.Prefixable `json:"network_interface_address,omitempty"`
 
@@ -95,7 +111,8 @@ type DefaultRule struct {
 }
 
 type LogicalRule struct {
-	Mode   string `json:"mode"`
+	Mode LogicalRuleMode `json:"mode"`
+
 	Rules  []Rule `json:"rules,omitempty"`
 	Invert bool   `json:"invert,omitempty"`
 }

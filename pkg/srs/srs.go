@@ -1,22 +1,25 @@
 package srs
 
 import (
-	"context"
+	"encoding/json"
+	"fmt"
+
+	"github.com/imduaky/ruleset/pkg/internal/singjson"
 )
 
 type BinarySrsMarshaler interface {
-	MarshalSrsBinary(ctx context.Context) ([]byte, error)
+	MarshalSrsBinary() ([]byte, error)
 }
 type JSONSrsMarshaler interface {
-	MarshalSrsJSON(ctx context.Context) ([]byte, error)
+	MarshalSrsJSON() ([]byte, error)
 }
 
 type BinarySrsUnmarshaler interface {
-	UnmarshalSrsBinary(ctx context.Context, data []byte) error
+	UnmarshalSrsBinary(data []byte) error
 }
 
 type JSONSrsUnmarshaler interface {
-	UnmarshalSrsJson(ctx context.Context, data []byte) error
+	UnmarshalSrsJson(data []byte) error
 }
 
 type Srs interface {
@@ -29,23 +32,45 @@ type Srs interface {
 var _ Srs = (*Ruleset)(nil)
 
 type Ruleset struct {
+	Version RuleSetVersion `json:"version"`
+	Rules   []Rule         `json:"rules"`
 }
 
-func (r Ruleset) MarshalSrsBinary(ctx context.Context) ([]byte, error) {
+type _RuleSet Ruleset
 
-}
-
-func (r *Ruleset) UnmarshalSrsBinary(ctx context.Context, data []byte) error {
+func (r Ruleset) MarshalSrsBinary() ([]byte, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (r Ruleset) MarshalSrsJSON(ctx context.Context) ([]byte, error) {
+func (r *Ruleset) UnmarshalSrsBinary(data []byte) error {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (r *Ruleset) UnmarshalSrsJson(ctx context.Context, data []byte) error {
-	//TODO implement me
-	panic("implement me")
+func (r Ruleset) MarshalSrsJSON() ([]byte, error) {
+	data, err := json.Marshal((_RuleSet)(r))
+	if err != nil {
+		return nil, fmt.Errorf("marshalSrsJSON: %w", err)
+	}
+	return data, nil
+}
+
+func (r *Ruleset) UnmarshalSrsJson(data []byte) error {
+	type versionedRuleset struct {
+		Version RuleSetVersion `json:"version"`
+	}
+	var vv versionedRuleset
+	err := json.Unmarshal(data, &vv)
+	if err != nil {
+		return fmt.Errorf("unmarshalSrsJSON: %w", err)
+	}
+
+	// assume the Version is correctly
+	var rr Ruleset
+	err = singjson.UnmarshalStrict(data, &rr)
+	if err != nil {
+		return fmt.Errorf("unmarshalSrsJSON: %w", err)
+	}
+	return nil
 }
