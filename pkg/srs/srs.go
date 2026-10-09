@@ -1,10 +1,11 @@
 package srs
 
 import (
-	"encoding/json"
+	"bytes"
+	"encoding/json/v2"
 	"fmt"
 
-	"github.com/imduaky/ruleset/pkg/internal/singjson"
+	"github.com/imduaky/ruleset/pkg/srs/singjson"
 )
 
 type BinarySrsMarshaler interface {
@@ -39,13 +40,21 @@ type Ruleset struct {
 type _RuleSet Ruleset
 
 func (r Ruleset) MarshalSrsBinary() ([]byte, error) {
-	//TODO implement me
-	panic("implement me")
+	var buffer bytes.Buffer
+	err := Write(&buffer, r)
+	if err != nil {
+		return nil, fmt.Errorf("marshalSrsBinary: %w", err)
+	}
+	return buffer.Bytes(), nil
 }
 
 func (r *Ruleset) UnmarshalSrsBinary(data []byte) error {
-	//TODO implement me
-	panic("implement me")
+	rr, err := Read(bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("unmarshalSrsBinary: %w", err)
+	}
+	*r = *rr
+	return nil
 }
 
 func (r Ruleset) MarshalSrsJSON() ([]byte, error) {
@@ -66,11 +75,11 @@ func (r *Ruleset) UnmarshalSrsJson(data []byte) error {
 		return fmt.Errorf("unmarshalSrsJSON: %w", err)
 	}
 
-	// assume the Version is correctly
 	var rr Ruleset
 	err = singjson.UnmarshalStrict(data, &rr)
 	if err != nil {
 		return fmt.Errorf("unmarshalSrsJSON: %w", err)
 	}
+	*r = rr
 	return nil
 }

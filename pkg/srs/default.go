@@ -1,22 +1,23 @@
 package srs
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/imduaky/ruleset/pkg/internal/common"
+	"github.com/imduaky/ruleset/pkg/internal/singdns"
 )
 
 var magicBytes = [3]byte{0x53, 0x52, 0x53} // SRS
 
-func MagicBytes() []byte {
-	return magicBytes[:]
-}
+// RuleItem codes are the same as sing-box, by nekohasekai <contact-sagernet@sekai.icu>.
+// https://github.com/SagerNet/sing-box/blob/fe92ab3e78a9bb7d448c155ef6906218e2ca5453/common/srs/binary.go
+type RuleItem uint8
 
 const (
-	RuleItemQueryType uint8 = iota
+	RuleItemQueryType RuleItem = iota
 	RuleItemNetwork
 	RuleItemDomain
 	RuleItemDomainKeyword
@@ -65,6 +66,23 @@ func ParseInterfaceType(s string) (InterfaceType, bool) {
 	return so, exist
 }
 
+func (o InterfaceType) MarshalText() ([]byte, error) {
+	value, ok := interfaceTypeToString[o]
+	if !ok {
+		return nil, fmt.Errorf("marshalText: invalid InterfaceType: %d", o)
+	}
+	return []byte(value), nil
+}
+
+func (o *InterfaceType) UnmarshalText(data []byte) error {
+	value, ok := ParseInterfaceType(string(data))
+	if !ok {
+		return fmt.Errorf("unmarshalText: invalid InterfaceType: %s", data)
+	}
+	*o = value
+	return nil
+}
+
 var (
 	interfaceTypeToString = map[InterfaceType]string{
 		InterfaceTypeWIFI:     "wifi",
@@ -75,6 +93,45 @@ var (
 
 	stringToInterfaceType = common.ReverseMap(interfaceTypeToString)
 )
+
+// DNSQueryType is modified from sing-box, by nekohasekai <contact-sagernet@sekai.icu>.
+// https://github.com/SagerNet/sing-box/blob/fe92ab3e78a9bb7d448c155ef6906218e2ca5453/option/types.go
+type DNSQueryType uint16
+
+func (t DNSQueryType) String() string {
+	name, ok := singdns.TypeToString[uint16(t)]
+	if ok {
+		return name
+	}
+	return strconv.FormatUint(uint64(t), 10)
+}
+
+func (t DNSQueryType) MarshalJSON() ([]byte, error) {
+	name, ok := singdns.TypeToString[uint16(t)]
+	if ok {
+		return json.Marshal(name)
+	}
+	return json.Marshal(uint16(t))
+}
+
+func (t *DNSQueryType) UnmarshalJSON(data []byte) error {
+	var number uint16
+	if json.Unmarshal(data, &number) == nil {
+		*t = DNSQueryType(number)
+		return nil
+	}
+	var name string
+	err := json.Unmarshal(data, &name)
+	if err != nil {
+		return fmt.Errorf("unmarshalJSON: unknown DNSQueryType: %s", data)
+	}
+	value, ok := singdns.StringToType[name]
+	if !ok {
+		return fmt.Errorf("unmarshalJSON: unknown DNSQueryType: %s", data)
+	}
+	*t = DNSQueryType(value)
+	return nil
+}
 
 type RuleType string
 
@@ -96,8 +153,11 @@ func (r RuleType) String() string {
 
 func (r RuleType) MarshalJSON() ([]byte, error) {
 	switch r {
-	case RuleTypeLogical, RuleTypeDefault, "":
-		return []byte(r.String()), nil
+	case RuleTypeDefault, "":
+		// empty
+		return make([]byte, 0), nil
+	case RuleTypeLogical:
+		return json.Marshal(RuleTypeLogical.String())
 	default:
 		return nil, fmt.Errorf("marshal: unknown RuleType: %s", string(r))
 	}
@@ -123,8 +183,8 @@ func (r *RuleType) UnmarshalJSON(data []byte) error {
 type LogicalRuleMode uint8
 
 const (
-	LogicalRuleModeOr LogicalRuleMode = iota
-	LogicalRuleModeAnd
+	LogicalRuleModeAnd LogicalRuleMode = iota
+	LogicalRuleModeOr
 )
 
 var (
@@ -133,6 +193,11 @@ var (
 	}
 	stringToLogicalRuleMode = common.ReverseMap(logicalRuleModeToString)
 )
+
+func (o LogicalRuleMode) OK() bool {
+	_, ok := logicalRuleModeToString[o]
+	return ok
+}
 
 func (o LogicalRuleMode) String() string {
 	oo, ok := logicalRuleModeToString[o]
@@ -147,10 +212,33 @@ func ParseLogicalRuleMode(v string) (LogicalRuleMode, bool) {
 	return so, exist
 }
 
+func (o LogicalRuleMode) MarshalJSON() ([]byte, error) {
+	value, ok := logicalRuleModeToString[o]
+	if !ok {
+		return nil, fmt.Errorf("marshalJSON: invalid LogicalRuleMode: %d", o)
+	}
+	return json.Marshal(value)
+}
+
+func (o *LogicalRuleMode) UnmarshalJSON(data []byte) error {
+	var value string
+	err := json.Unmarshal(data, &value)
+	if err != nil {
+		return err
+	}
+	mode, ok := ParseLogicalRuleMode(value)
+	if !ok {
+		return fmt.Errorf("unmarshalJSON: invalid LogicalRuleMode: %s", value)
+	}
+	*o = mode
+	return nil
+}
+
 type RuleSetVersion uint8
 
 const (
-	RuleSetVersion1 RuleSetVersion = 1 + iota
+	_rulesetVersionMin RuleSetVersion = iota
+	RuleSetVersion1
 	RuleSetVersion2
 	RuleSetVersion3
 	RuleSetVersion4
@@ -160,7 +248,7 @@ const (
 )
 
 func (r RuleSetVersion) OK() bool {
-	return r < _rulesetVersionMax
+	return r < _rulesetVersionMax && r > _rulesetVersionMin
 }
 
 func (r RuleSetVersion) MarshalJSON() ([]byte, error) {

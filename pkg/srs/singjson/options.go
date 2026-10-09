@@ -6,6 +6,10 @@ import (
 	"net/netip"
 )
 
+func NewListable[T any](vv ...T) Listable[T] {
+	return Listable[T](vv)
+}
+
 type Listable[T any] []T
 
 func (l Listable[T]) MarshalJSON() ([]byte, error) {
@@ -19,18 +23,21 @@ func (l Listable[T]) MarshalJSON() ([]byte, error) {
 func (l *Listable[T]) UnmarshalJSON(content []byte) error {
 	var singleItem *T
 	err := UnmarshalStrict(content, &singleItem)
-	if err == nil {
-		if singleItem != nil {
-			*l = []T{*singleItem}
+	if err != nil {
+		var list []T
+		listErr := UnmarshalStrict(content, &list)
+		if listErr != nil {
+			return errors.Join(err, listErr)
 		}
+		*l = list
 		return nil
 	}
-	newErr := UnmarshalStrict(content, (*[]T)(l))
-	if newErr == nil {
+	if singleItem == nil {
+		*l = nil
 		return nil
 	}
-
-	return errors.Join(err, newErr)
+	*l = []T{*singleItem}
+	return nil
 }
 
 type Prefixable netip.Prefix
