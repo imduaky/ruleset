@@ -16,54 +16,56 @@ import (
 	"github.com/imduaky/ruleset/pkg/srs/singjson"
 )
 
-func Read(r io.Reader) (*Ruleset, error) {
-	// zlib reads exactly the compressed stream from an io.ByteReader,
-	// otherwise it wraps r with its own bufio.Reader and may read past the end,
-	// so the trailing data could not be checked.
-	rawReader := singvarbin.NewReader(r)
-	err := readMagic(rawReader)
+// Read reads a rule-set the same as sing-box, and also verifies the zlib checksum.
+// r should hold exactly one rule-set, since zlib may read past its end
+// and the data after the zlib stream is not checked.
+func Read(r io.Reader) (Ruleset, error) {
+	version, err := readHeader(r)
 	if err != nil {
-		return nil, err
+		return Ruleset{}, err
 	}
-	version, err := readVersion(rawReader)
+	compressReader, err := zlib.NewReader(r)
 	if err != nil {
-		return nil, err
+		return Ruleset{}, err
 	}
-	compressReader, err := zlib.NewReader(rawReader)
-	if err != nil {
-		return nil, err
-	}
-	defer compressReader.Close()
 
 	// zlib.Reader is not an io.ByteReader, which is required by uvarint.
 	bReader := bufio.NewReader(compressReader)
 	rules, err := readRules(bReader, 0)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, io.EOF) {
+			return Ruleset{}, io.ErrUnexpectedEOF
+		}
+		return Ruleset{}, err
+	}
+	// zlib verifies the checksum only when a Read reaches the end of its stream,
+	// which may not happen with the last rule, so read once more for io.EOF.
+	_, err = bReader.ReadByte()
+	if err == nil {
+		return Ruleset{}, errors.New("unexpected data after rules")
+	}
+	if err != io.EOF {
+		return Ruleset{}, err
 	}
 
-	return &Ruleset{Version: version, Rules: rules}, nil
+	return Ruleset{Version: version, Rules: rules}, nil
 }
 
-func readMagic(r io.Reader) error {
-	var readMagicBytes [3]byte
-	_, err := io.ReadFull(r, readMagicBytes[:])
+func readHeader(r io.Reader) (RuleSetVersion, error) {
+	var header [4]byte
+	_, err := io.ReadFull(r, header[:])
 	if err != nil {
-		return err
-	}
-	if readMagicBytes != magicBytes {
-		return errors.New("not a srs")
-	}
-	return nil
-}
-
-func readVersion(r io.ByteReader) (RuleSetVersion, error) {
-	versionByte, err := r.ReadByte()
-	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return 0, io.ErrUnexpectedEOF
+		}
 		return 0, err
 	}
 
-	version := RuleSetVersion(versionByte)
+	if [3]byte(header[:3]) != magicBytes {
+		return 0, errors.New("not a srs")
+	}
+
+	version := RuleSetVersion(header[3])
 	if !version.OK() {
 		return 0, fmt.Errorf("invalid version: %d", version)
 	}
@@ -202,7 +204,7 @@ func readRuleItemString(r singvarbin.Reader) ([]string, error) {
 		return nil, err
 	}
 	values := make([]string, 0, min(length, 1024))
-	for i := uint64(0); i < length; i++ {
+	for range length {
 		data, err := singvarbin.ReadSlice[byte](r)
 		if err != nil {
 			return nil, err
@@ -218,7 +220,7 @@ func readInterfaceAddresses(r singvarbin.Reader) (*singjson.TypedMap[InterfaceTy
 		return nil, err
 	}
 	values := new(singjson.TypedMap[InterfaceType, singjson.Listable[singjson.Prefixable]])
-	for i := uint64(0); i < length; i++ {
+	for range length {
 		key, err := r.ReadByte()
 		if err != nil {
 			return nil, err

@@ -68,8 +68,6 @@ func writeRules(w singvarbin.Writer, rules []Rule, version RuleSetVersion, depth
 	return nil
 }
 
-// writeDefaultRule writes items in the same order as sing-box,
-// so the output is byte-for-byte identical.
 func writeDefaultRule(w singvarbin.Writer, rule DefaultRule, version RuleSetVersion) error {
 	err := w.WriteByte(0)
 	if err != nil {

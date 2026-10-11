@@ -37,6 +37,13 @@ type Ruleset struct {
 	Rules   []Rule         `json:"rules"`
 }
 
+func NewRuleset(rules ...Rule) Ruleset {
+	version := DowngradeRuleSetVersion(RuleSetVersionCurrent, rules)
+	return Ruleset{
+		Version: version, Rules: rules,
+	}
+}
+
 type _RuleSet Ruleset
 
 func (r Ruleset) MarshalSrsBinary() ([]byte, error) {
@@ -53,7 +60,7 @@ func (r *Ruleset) UnmarshalSrsBinary(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("unmarshalSrsBinary: %w", err)
 	}
-	*r = *rr
+	*r = rr
 	return nil
 }
 

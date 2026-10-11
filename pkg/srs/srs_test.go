@@ -1,8 +1,14 @@
 package srs
 
 import (
+	"bytes"
+	"compress/zlib"
+	"io"
 	"net/netip"
+	"strconv"
+	"strings"
 	"testing"
+	"testing/iotest"
 
 	"github.com/imduaky/ruleset/pkg/srs/singjson"
 
@@ -140,18 +146,90 @@ func TestBinaryRejectsEmptyDomain(t *testing.T) {
 	}
 }
 
+// compressRules writes a rule-set with extra data after the rules in the compressed stream.
+func compressRules(t *testing.T, ruleset Ruleset, extra string) []byte {
+	var content bytes.Buffer
+	require.NoError(t, writeRules(&content, ruleset.Rules, ruleset.Version, 0))
+	content.WriteString(extra)
+
+	var buffer bytes.Buffer
+	buffer.Write(append(magicBytes[:], byte(ruleset.Version)))
+	w := zlib.NewWriter(&buffer)
+	_, err := w.Write(content.Bytes())
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+	return buffer.Bytes()
+}
+
 func TestBinaryRejectsMalformed(t *testing.T) {
 	data, err := fullRuleset().MarshalSrsBinary()
 	require.NoError(t, err)
-	for name, value := range map[string][]byte{
-		"magic":     append([]byte("XRS"), data[3:]...),
-		"version":   append([]byte{'S', 'R', 'S', 0}, data[4:]...),
-		"truncated": data[:len(data)/2],
-		"trailing":  append(data[:len(data):len(data)], 0),
+	for name, value := range map[string]struct {
+		data    []byte
+		message string
+	}{
+		"magic":     {append([]byte("XRS"), data[3:]...), "not a srs"},
+		"version":   {append([]byte{'S', 'R', 'S', 0}, data[4:]...), "invalid version"},
+		"empty":     {nil, io.ErrUnexpectedEOF.Error()},
+		"header":    {[]byte("SRS"), io.ErrUnexpectedEOF.Error()},
+		"truncated": {data[:len(data)/2], io.ErrUnexpectedEOF.Error()},
+		"extra":     {compressRules(t, fullRuleset(), "extra"), "unexpected data after rules"},
 	} {
 		var decoded Ruleset
-		require.Error(t, decoded.UnmarshalSrsBinary(value), name)
+		require.ErrorContains(t, decoded.UnmarshalSrsBinary(value.data), value.message, name)
 	}
+}
+
+// windowRuleset returns a rule-set whose rules are exactly the 32KB window of flate,
+// the last rules are decompressed before the end of the zlib stream is read.
+func windowRuleset(t *testing.T) Ruleset {
+	keywords := make(singjson.Listable[string], 1000)
+	for i := range keywords {
+		keywords[i] = "keyword-" + strconv.Itoa(i)
+	}
+	ruleset := Ruleset{Version: RuleSetVersion1, Rules: []Rule{{Type: RuleTypeDefault, DefaultOptions: DefaultRule{DomainKeyword: keywords}}}}
+	for {
+		var content bytes.Buffer
+		require.NoError(t, writeRules(&content, ruleset.Rules, ruleset.Version, 0))
+		diff := 1<<15 - content.Len()
+		if diff == 0 {
+			return ruleset
+		}
+		keywords[0] = strings.Repeat("a", len(keywords[0])+diff)
+	}
+}
+
+func TestBinaryChecksum(t *testing.T) {
+	// Whether zlib reaches the end of its stream with the last rule or not.
+	for name, ruleset := range map[string]Ruleset{"full": fullRuleset(), "window": windowRuleset(t)} {
+		data, err := ruleset.MarshalSrsBinary()
+		require.NoError(t, err)
+		var decoded Ruleset
+		require.NoError(t, decoded.UnmarshalSrsBinary(data), name)
+		require.Equal(t, ruleset, decoded, name)
+
+		corrupt := bytes.Clone(data)
+		corrupt[len(corrupt)-1] ^= 0xFF
+		require.ErrorIs(t, decoded.UnmarshalSrsBinary(corrupt), zlib.ErrChecksum, name)
+		require.ErrorIs(t, decoded.UnmarshalSrsBinary(data[:len(data)-4]), io.ErrUnexpectedEOF, name)
+	}
+}
+
+func TestBinaryIgnoresTrailingData(t *testing.T) {
+	// Same as sing-box, the data after the zlib stream is not checked.
+	data, err := fullRuleset().MarshalSrsBinary()
+	require.NoError(t, err)
+	var decoded Ruleset
+	require.NoError(t, decoded.UnmarshalSrsBinary(append(data[:len(data):len(data)], "trailing"...)))
+	require.Equal(t, fullRuleset(), decoded)
+}
+
+func TestBinaryReadHeaderError(t *testing.T) {
+	data, err := fullRuleset().MarshalSrsBinary()
+	require.NoError(t, err)
+	// ErrTimeout comes after the header is half read, it must be returned rather than ignored.
+	_, err = Read(iotest.TimeoutReader(iotest.OneByteReader(bytes.NewReader(data))))
+	require.ErrorIs(t, err, iotest.ErrTimeout)
 }
 
 func TestBinaryLogicalDepth(t *testing.T) {
