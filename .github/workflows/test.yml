@@ -1,0 +1,44 @@
+name: test
+on:
+  push:
+    branches:
+      - "*"
+    paths-ignore:
+      - ".github/**"
+      - "**.md"
+      - "!.github/workflows/test.yml"
+  pull_request:
+    branches:
+      - "*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Cache go module
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+          key: go-${{ hashFiles('**/go.sum') }}
+      - name: Lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.13.1
+          install-mode: binary
+          verify: true
+          # a hack, let the linter install but not run it.
+          args: '--help'
+      - name: Test
+        run: |
+          make test

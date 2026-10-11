@@ -65,7 +65,7 @@ func (r *Ruleset) UnmarshalSrsBinary(data []byte) error {
 }
 
 func (r Ruleset) MarshalSrsJSON() ([]byte, error) {
-	data, err := json.Marshal((_RuleSet)(r))
+	data, err := json.Marshal(_RuleSet(r))
 	if err != nil {
 		return nil, fmt.Errorf("marshalSrsJSON: %w", err)
 	}

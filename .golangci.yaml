@@ -1,0 +1,64 @@
+version: "2"
+run:
+  go: "1.27.0"
+  timeout: "30s"
+  tests: false
+  build-tags:
+    - debug
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - bodyclose
+    - errname
+    - embeddedstructfieldcheck
+    - exptostd
+    - gocheckcompilerdirectives
+    - nilerr
+    - nolintlint
+    - tagalign
+  settings:
+    staticcheck:
+      checks:
+        - all
+        - -S1000
+        - -S1008
+        - -S1017
+        - -ST1001
+        - -ST1003
+        - -QF1001
+        - -QF1003
+        - -QF1008
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+      - script/goscript
+formatters:
+  enable:
+    - gci
+    - gofumpt
+  settings:
+    gci:
+      sections:
+        - standard
+        - prefix(github.com/imduaky/ruleset/)
+        - prefix(github.com/imduaky/)
+        - default
+      custom-order: true
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

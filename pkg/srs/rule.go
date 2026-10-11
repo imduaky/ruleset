@@ -79,7 +79,7 @@ func (r *Rule) UnmarshalJSON(data []byte) error {
 type DefaultRule struct {
 	QueryType singjson.Listable[DNSQueryType] `json:"query_type,omitempty"`
 
-	Network              singjson.Listable[string]              `json:"network,omitempty" enum:"tcp,udp,icmp"`
+	Network              singjson.Listable[string]              `json:"network,omitempty"`
 	Domain               singjson.Listable[string]              `json:"domain,omitempty"`
 	DomainSuffix         singjson.Listable[string]              `json:"domain_suffix,omitempty"`
 	DomainKeyword        singjson.Listable[string]              `json:"domain_keyword,omitempty"`

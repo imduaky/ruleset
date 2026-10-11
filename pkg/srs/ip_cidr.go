@@ -31,7 +31,7 @@ func readAddress(r singvarbin.Reader) (netip.Addr, error) {
 		return netip.Addr{}, fmt.Errorf("invalid IP address length: %d", length)
 	}
 
-	var data = make([]byte, length)
+	data := make([]byte, length)
 	_, err = io.ReadFull(r, data[:length])
 	if err != nil {
 		return netip.Addr{}, err
