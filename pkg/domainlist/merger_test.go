@@ -85,6 +85,14 @@ func TestMerge(t *testing.T) {
 			name := list.Name
 			require.Empty(t, list.Inclusions, name)
 		}
+
+		// MergeAttrs filters while merging, the same as filtering the merged list.
+		for _, attrs := range attrCases(lists) {
+			filtered, err := m.MergeAttrs(name, attrs...)
+			require.NoError(t, err)
+			must, ban := splitAttrs(attrs)
+			require.Equal(t, again.Filter(must, ban), filtered.Domains, "%v", attrs)
+		}
 	})
 }
 
@@ -138,6 +146,63 @@ func TestMerger(t *testing.T) {
 	all, err := domainlist.NewMerger(domainlist.NewDomainListSet()).MergeAll()
 	require.NoError(t, err)
 	require.Zero(t, all.Len())
+}
+
+// attrCases returns the attributes of MergeAttrs for the attributes in the lists, e.g. [a], [-a], [a -b].
+func attrCases(lists []domainlist.NamedDomainList) [][]string {
+	var attrs []string
+	for _, list := range lists {
+		for _, d := range list.Domains {
+			attrs = append(attrs, d.Attrs...)
+		}
+	}
+	slices.Sort(attrs)
+	attrs = slices.Compact(attrs)
+	cases := [][]string{nil}
+	for i, attr := range attrs {
+		cases = append(cases, []string{attr}, []string{"-" + attr})
+		if i > 0 {
+			cases = append(cases, []string{attrs[i-1], "-" + attr})
+		}
+	}
+	return cases
+}
+
+func splitAttrs(attrs []string) (must, ban []string) {
+	for _, attr := range attrs {
+		if b, ok := strings.CutPrefix(attr, "-"); ok {
+			ban = append(ban, b)
+		} else {
+			must = append(must, attr)
+		}
+	}
+	return must, ban
+}
+
+// TestMergerKeepsNoState checks that the changes of the Lookuper are seen by the next calls.
+func TestMergerKeepsNoState(t *testing.T) {
+	set := setOf(t, map[string]string{"a": "include:c\na.com", "c": "c.com"})
+	m := domainlist.NewMerger(set)
+	merged, err := m.Merge("a")
+	require.NoError(t, err)
+	require.Equal(t, "a.com\nc.com\n", marshal(t, merged))
+
+	set.Add(domainlist.NamedDomainList{Name: "c", DomainList: parseText(t, "include:d\nc.org")})
+	set.Add(domainlist.NamedDomainList{Name: "d", DomainList: parseText(t, "d.com @cn")})
+	merged, err = m.Merge("a")
+	require.NoError(t, err)
+	require.Equal(t, "a.com\nc.com\nc.org\nd.com @cn\n", marshal(t, merged))
+	merged, err = m.MergeAttrs("a", "cn")
+	require.NoError(t, err)
+	require.Equal(t, "d.com @cn\n", marshal(t, merged))
+	all, err := m.MergeAll()
+	require.NoError(t, err)
+	require.Equal(t, merged.Domains, get(t, all, "d").Domains)
+
+	// A circle made later is found.
+	set.Add(domainlist.NamedDomainList{Name: "d", DomainList: parseText(t, "include:a")})
+	_, err = m.Merge("a")
+	require.EqualError(t, err, "circular inclusion: [a -> c -> d -> a]")
 }
 
 func TestDomainListSet(t *testing.T) {
@@ -249,7 +314,7 @@ func BenchmarkMergeAllDataFiles(b *testing.B) {
 		b.Skip("DLC_DATA is not set")
 	}
 	var lists []domainlist.NamedDomainList
-	for list, err := range (domainlist.FileLookuper{FS: os.DirFS(dir)}).All() {
+	for list, err := range (&domainlist.FileLookuper{FS: os.DirFS(dir)}).All() {
 		require.NoError(b, err)
 		lists = append(lists, list)
 	}
@@ -266,7 +331,7 @@ func BenchmarkMergeAllDataFiles(b *testing.B) {
 	b.Run("file", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			_, err := domainlist.NewMerger(domainlist.FileLookuper{FS: os.DirFS(dir)}).MergeAll()
+			_, err := domainlist.NewMerger(&domainlist.FileLookuper{FS: os.DirFS(dir)}).MergeAll()
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -309,9 +374,44 @@ func TestMergeError(t *testing.T) {
 	require.Equal(t, []string{"top", "a", "b", "a"}, mergeErr.Path)
 	require.Equal(t, 1, mergeErr.Cycle)
 
-	_, err = domainlist.NewMerger(domainlist.FileLookuper{FS: fstest.MapFS{"top": {Data: []byte("include:bad")}, "bad": {Data: []byte("bad.com attr")}}}).Merge("top")
+	_, err = domainlist.NewMerger(&domainlist.FileLookuper{FS: fstest.MapFS{"top": {Data: []byte("include:bad")}, "bad": {Data: []byte("bad.com attr")}}}).Merge("top")
 	require.EqualError(t, err, `lookup top -> bad: read bad: line 1: unknown field: "attr"`)
 	require.ErrorAs(t, err, &mergeErr)
 	require.Equal(t, []string{"top", "bad"}, mergeErr.Path)
 	require.NotErrorIs(t, err, domainlist.ErrListNotFound)
+}
+
+// BenchmarkMergeAttrsDataFiles compares MergeAttrs with filtering the merged list, see BenchmarkMergeAllDataFiles.
+func BenchmarkMergeAttrsDataFiles(b *testing.B) {
+	dir := os.Getenv("DLC_DATA")
+	if dir == "" {
+		b.Skip("DLC_DATA is not set")
+	}
+	set := domainlist.NewDomainListSet()
+	for list, err := range (&domainlist.FileLookuper{FS: os.DirFS(dir)}).All() {
+		require.NoError(b, err)
+		set.Add(list)
+	}
+	m := domainlist.NewMerger(set)
+	const name = "geolocation-!cn"
+
+	b.Run("filter", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			list, err := m.Merge(name)
+			if err != nil {
+				b.Fatal(err)
+			}
+			list.Filter([]string{"cn"}, nil)
+		}
+	})
+	b.Run("attrs", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_, err := m.MergeAttrs(name, "cn")
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 }

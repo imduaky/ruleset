@@ -207,7 +207,7 @@ func ExampleFileLookuper() {
 		"other":       {Data: []byte("other.com")},
 	}
 	// The files are read when the lists are looked up, "other" is not read.
-	list, err := domainlist.NewMerger(domainlist.FileLookuper{FS: data}).Merge("example")
+	list, err := domainlist.NewMerger(&domainlist.FileLookuper{FS: data}).Merge("example")
 	if err != nil {
 		panic(err)
 	}

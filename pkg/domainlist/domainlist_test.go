@@ -260,12 +260,27 @@ func TestDataFiles(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, len(lists), all.Len())
 	// The files are looked up lazily, and merged the same.
-	fromFiles, err := domainlist.NewMerger(domainlist.FileLookuper{FS: os.DirFS(dir)}).MergeAll()
+	fromFiles, err := domainlist.NewMerger(&domainlist.FileLookuper{FS: os.DirFS(dir)}).MergeAll()
 	require.NoError(t, err)
 	require.Equal(t, all, fromFiles)
+	m := domainlist.NewMerger(domainlist.NewDomainListSet(lists...))
 	for list, err := range all.All() {
 		require.NoError(t, err)
 		name := list.Name
+		// MergeAttrs filters while merging, the same as filtering the merged list.
+		for _, attrs := range [][]string{{"cn"}, {"-cn"}, {"!cn"}, {"ads"}, {"ads", "-cn"}} {
+			filtered, err := m.MergeAttrs(name, attrs...)
+			require.NoError(t, err)
+			var must, ban []string
+			for _, attr := range attrs {
+				if b, ok := strings.CutPrefix(attr, "-"); ok {
+					ban = append(ban, b)
+				} else {
+					must = append(must, attr)
+				}
+			}
+			require.Equal(t, list.Filter(must, ban), filtered.Domains, "%s %v", name, attrs)
+		}
 		require.Empty(t, list.Inclusions, name)
 		require.NoError(t, list.Validate(), name)
 	}

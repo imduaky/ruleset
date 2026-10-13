@@ -46,7 +46,7 @@ func names(t *testing.T, lists iter.Seq2[domainlist.NamedDomainList, error]) []s
 
 func TestFileLookuper(t *testing.T) {
 	opened := make(map[string]int)
-	l := domainlist.FileLookuper{FS: countFS{FS: fstest.MapFS{
+	l := &domainlist.FileLookuper{FS: countFS{FS: fstest.MapFS{
 		"a":         {Data: []byte("include:b\na.com")},
 		"b":         {Data: []byte("b.com @cn")},
 		"unused":    {Data: []byte("unused.com")},
@@ -55,7 +55,7 @@ func TestFileLookuper(t *testing.T) {
 		".DS_Store": {Data: []byte("\x00")},
 		"README.md": {Data: []byte("# Lists")},
 	}, opened: opened}}
-	bad := domainlist.FileLookuper{FS: fstest.MapFS{"a": {Data: []byte("a.com")}, "bad": {Data: []byte("bad.com attr")}}}
+	bad := &domainlist.FileLookuper{FS: fstest.MapFS{"a": {Data: []byte("a.com")}, "bad": {Data: []byte("bad.com attr")}}}
 
 	list, err := l.Lookup("b")
 	require.NoError(t, err)
@@ -88,21 +88,29 @@ func TestFileLookuper(t *testing.T) {
 	for i := range 200 {
 		many["l"+strconv.Itoa(i)] = &fstest.MapFile{Data: []byte("l" + strconv.Itoa(i) + ".com")}
 	}
-	require.Len(t, names(t, domainlist.FileLookuper{FS: many}.All()), 200)
+	require.Len(t, names(t, (&domainlist.FileLookuper{FS: many}).All()), 200)
 
 	for _, fsys := range []fs.FS{errFS{}, fileFS{}} {
-		for _, err := range (domainlist.FileLookuper{FS: fsys}).All() {
+		for _, err := range (&domainlist.FileLookuper{FS: fsys}).All() {
 			require.Error(t, err)
 		}
 	}
 
-	// The files are read lazily, each once by a Merger.
+	// The files are read lazily, each once in a call of a Merger, which keeps no state.
 	clear(opened)
 	m := domainlist.NewMerger(l)
 	for range 2 {
 		merged, err := m.Merge("a")
 		require.NoError(t, err)
 		require.Equal(t, "a.com\nb.com @cn\n", marshal(t, merged))
+	}
+	require.Equal(t, map[string]int{"a": 2, "b": 2}, opened)
+	// A CachedLookuper reads each file once.
+	clear(opened)
+	cached := domainlist.NewMerger(domainlist.NewCachedLookuper(l))
+	for range 2 {
+		_, err := cached.Merge("a")
+		require.NoError(t, err)
 	}
 	require.Equal(t, map[string]int{"a": 1, "b": 1}, opened)
 	_, err = m.Merge("include")
@@ -228,12 +236,13 @@ func TestCachedLookuperConcurrent(t *testing.T) {
 		data["l"+strconv.Itoa(i)] = &fstest.MapFile{Data: []byte("include:l" + strconv.Itoa((i+1)%50+50*(i/49)) + "\nl" + strconv.Itoa(i) + ".com")}
 	}
 	data["l49"] = &fstest.MapFile{Data: []byte("l49.com")}
-	c := domainlist.NewLockedLookuper(domainlist.NewCachedLookuper(domainlist.FileLookuper{FS: data}))
+	c := domainlist.NewLockedLookuper(domainlist.NewCachedLookuper(&domainlist.FileLookuper{FS: data}))
+	// A Merger is safe for concurrent use if its Lookuper is.
+	m := domainlist.NewMerger(c)
 
 	var wg sync.WaitGroup
 	for i := range 16 {
 		wg.Go(func() {
-			m := domainlist.NewMerger(c)
 			switch i % 3 {
 			case 0:
 				all, err := m.MergeAll()

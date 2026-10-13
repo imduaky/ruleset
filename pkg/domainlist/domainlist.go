@@ -190,7 +190,7 @@ func (l DomainList) textLen() int {
 
 func (l DomainList) appendText(b []byte) []byte {
 	for _, inc := range l.Inclusions {
-		b = append(inc.append(b), '\n')
+		b = append(inc.appendText(b), '\n')
 	}
 	for _, d := range l.Domains {
 		b = append(d.appendText(b), '\n')

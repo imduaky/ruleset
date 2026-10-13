@@ -4,7 +4,6 @@ import (
 	"encoding"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 )
 
@@ -21,14 +20,16 @@ type Inclusion struct {
 	BanAttrs  []string
 }
 
-func (inc Inclusion) Equal(ii Inclusion) bool {
-	return inc.Name == ii.Name &&
-		slices.Equal(inc.MustAttrs, ii.MustAttrs) &&
-		slices.Equal(inc.BanAttrs, ii.BanAttrs)
+type inclusionKey struct {
+	name, must, ban string
+}
+
+func (inc Inclusion) key() inclusionKey {
+	return inclusionKey{name: inc.Name, must: strings.Join(inc.MustAttrs, " "), ban: strings.Join(inc.BanAttrs, " ")}
 }
 
 func (inc Inclusion) String() string {
-	return string(inc.append(make([]byte, 0, inc.textLen())))
+	return string(inc.appendText(make([]byte, 0, inc.textLen())))
 }
 
 func (inc Inclusion) AppendText(b []byte) ([]byte, error) {
@@ -36,7 +37,7 @@ func (inc Inclusion) AppendText(b []byte) ([]byte, error) {
 	if err != nil {
 		return b, err
 	}
-	return inc.append(b), nil
+	return inc.appendText(b), nil
 }
 
 func (inc Inclusion) MarshalText() ([]byte, error) {
@@ -102,7 +103,7 @@ func (inc Inclusion) textLen() int {
 		fieldsLen(SymbolAttribute, inc.MustAttrs) + fieldsLen(SymbolAttribute+SymbolBan, inc.BanAttrs)
 }
 
-func (inc Inclusion) append(b []byte) []byte {
+func (inc Inclusion) appendText(b []byte) []byte {
 	b = append(b, PrefixInclude+SymbolType...)
 	b = append(b, inc.Name...)
 	b = appendFields(b, SymbolAttribute, inc.MustAttrs)

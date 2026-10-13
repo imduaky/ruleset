@@ -21,7 +21,7 @@ type Lookuper interface {
 
 var (
 	_ Lookuper = (*DomainListSet)(nil)
-	_ Lookuper = FileLookuper{}
+	_ Lookuper = (*FileLookuper)(nil)
 	_ Lookuper = (*CachedLookuper)(nil)
 	_ Lookuper = (*LockedLookuper)(nil)
 )
@@ -33,7 +33,7 @@ type FileLookuper struct {
 	FS fs.FS
 }
 
-func (l FileLookuper) Lookup(name string) (DomainList, error) {
+func (l *FileLookuper) Lookup(name string) (DomainList, error) {
 	// A list name is a valid file name, which could not be a path.
 	if !isListName(name) {
 		return DomainList{}, fmt.Errorf("%w: %q", ErrListNotFound, name)
@@ -63,7 +63,7 @@ func (l FileLookuper) Lookup(name string) (DomainList, error) {
 
 // All reads the files in the root of FS in the directory order, the directory is read in batches.
 // The files whose names are not list names are skipped, e.g. ".DS_Store" or "README.md".
-func (l FileLookuper) All() iter.Seq2[NamedDomainList, error] {
+func (l *FileLookuper) All() iter.Seq2[NamedDomainList, error] {
 	return func(yield func(NamedDomainList, error) bool) {
 		dir, err := l.FS.Open(".")
 		if err != nil {
@@ -171,7 +171,11 @@ func (l *LockedLookuper) Lookup(name string) (DomainList, error) {
 
 func (l *LockedLookuper) All() iter.Seq2[NamedDomainList, error] {
 	return func(yield func(NamedDomainList, error) bool) {
-		next, stop := iter.Pull2(l.lookuper.All())
+		// All might read the state of the Lookuper before iterating, e.g. CachedLookuper.
+		l.mu.Lock()
+		all := l.lookuper.All()
+		l.mu.Unlock()
+		next, stop := iter.Pull2(all)
 		defer func() {
 			// stop might run the rest of the iterator.
 			l.mu.Lock()

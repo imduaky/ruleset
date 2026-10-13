@@ -82,7 +82,7 @@ func TestTextLen(t *testing.T) {
 		},
 	}
 	for _, inc := range list.Inclusions {
-		require.Len(t, inc.append(nil), inc.textLen(), inc.String())
+		require.Len(t, inc.appendText(nil), inc.textLen(), inc.String())
 	}
 	for _, d := range list.Domains {
 		require.Len(t, d.appendText(nil), d.textLen(), d.String())
@@ -109,7 +109,7 @@ func TestHasAttrs(t *testing.T) {
 		{[]string{"ads", "cn"}, []string{"ads"}, []string{"cn"}, false},
 		{[]string{"ads"}, []string{"ads", "cn"}, nil, false},
 	} {
-		require.Equal(t, c.has, matchAttrs(c.attrs, c.must, c.ban), "%v %v %v", c.attrs, c.must, c.ban)
+		require.Equal(t, c.has, matchAttrsSerial(c.attrs, c.must, c.ban), "%v %v %v", c.attrs, c.must, c.ban)
 	}
 }
 
@@ -117,23 +117,23 @@ func TestKeyOf(t *testing.T) {
 	d := Domain{Type: RuleTypeFull, Value: "example.com", Attrs: []string{"a", "b"}}
 	other := d
 	other.Affiliations = []string{"list"}
-	require.Equal(t, keyOf(d), keyOf(other))
+	require.Equal(t, d.key(), other.key())
 	for _, dd := range []Domain{
 		{Type: RuleTypeDomain, Value: "example.com", Attrs: []string{"a", "b"}},
 		{Type: RuleTypeFull, Value: "example.org", Attrs: []string{"a", "b"}},
 		{Type: RuleTypeFull, Value: "example.com", Attrs: []string{"a"}},
 		{Type: RuleTypeFull, Value: "example.com"},
 	} {
-		require.NotEqual(t, keyOf(d), keyOf(dd), dd.String())
+		require.NotEqual(t, d.key(), dd.key(), dd.String())
 	}
 
 	// Keys of domains with less than 2 attrs are free.
 	d.Attrs = d.Attrs[:1]
-	require.Zero(t, testing.AllocsPerRun(10, func() { keyOf(d) }))
+	require.Zero(t, testing.AllocsPerRun(10, func() { d.key() }))
 }
 
-// TestMergerReuse checks that a merged list is cached and reused, and the looked up lists are not modified.
-func TestMergerReuse(t *testing.T) {
+// TestMergeContextReuse checks that a merged list is reused in a call, and the looked up lists are not modified.
+func TestMergeContextReuse(t *testing.T) {
 	named := func(name string, list DomainList) NamedDomainList {
 		return NamedDomainList{Name: name, DomainList: list}
 	}
@@ -144,22 +144,21 @@ func TestMergerReuse(t *testing.T) {
 		named("c", c),
 		named("d", DomainList{Domains: []Domain{{Type: RuleTypeDomain, Value: "d.com", Attrs: []string{"x"}}}}),
 	)
-	m := NewMerger(set)
-	_, err := m.Merge("a")
+	ctx := getContext(set, nil)
+	defer putContext(ctx)
+	_, err := ctx.merge("a")
 	require.NoError(t, err)
-	merged := m.merged["c"]
+	merged := ctx.merged["c"]
 	require.Empty(t, merged.Inclusions)
 	require.Len(t, merged.Domains, 2)
 	list, err := set.Lookup("c")
 	require.NoError(t, err)
 	require.Equal(t, c, list)
-	cached, err := m.lookuper.Lookup("c")
-	require.NoError(t, err)
-	require.Equal(t, c, cached)
+	require.Equal(t, c, ctx.lists["c"])
 
-	_, err = m.Merge("b")
+	_, err = ctx.merge("b")
 	require.NoError(t, err)
-	require.Same(t, &merged.Domains[0], &m.merged["c"].Domains[0], "c is not merged again")
+	require.Same(t, &merged.Domains[0], &ctx.merged["c"].Domains[0], "c is not merged again")
 }
 
 func TestAttrFilter(t *testing.T) {
@@ -194,7 +193,7 @@ func TestAttrFilter(t *testing.T) {
 	} {
 		f := newAttrFilter(c.must, c.ban)
 		require.Equal(t, c.match, f.match(c.attrs), "%v %v %v", c.attrs, c.must, c.ban)
-		require.Equal(t, matchAttrs(c.attrs, c.must, c.ban), f.match(c.attrs), "%v %v %v", c.attrs, c.must, c.ban)
+		require.Equal(t, matchAttrsSerial(c.attrs, c.must, c.ban), f.match(c.attrs), "%v %v %v", c.attrs, c.must, c.ban)
 		require.Equal(t, len(c.must)+len(c.ban) >= minMapAttrs && len(slices.Compact(slices.Sorted(slices.Values(c.must)))) <= maxMustBits, f.mustBits != nil)
 	}
 }
@@ -237,10 +236,10 @@ func TestMergeContextReset(t *testing.T) {
 		}
 		large[key] = struct{}{}
 	}
-	c.push("a", list)
-	c.push("b", list)
-	c.release(small)
-	c.release(large)
+	c.pushStack("a", list)
+	c.pushStack("b", list)
+	c.releaseSeen(small)
+	c.releaseSeen(large)
 	require.Empty(t, small)
 
 	// A failed merge leaves the frames on the stack.
@@ -259,19 +258,27 @@ func TestMergeContextReset(t *testing.T) {
 
 	// A deep stack is dropped.
 	for i := range maxPooledFrames + 1 {
-		c.push(strconv.Itoa(i), list)
+		c.pushStack(strconv.Itoa(i), list)
 	}
 	for range maxPooledFrames + 1 {
-		c.pop()
+		c.popStack()
 	}
 	c.reset()
 	require.Nil(t, c.stack)
 	require.Nil(t, c.onStack)
 
-	// The pooled contexts are reset.
-	c = getContext()
-	c.push("a", list)
+	// The pooled contexts are reset, which do not reference the Lookuper and the lists.
+	set := NewDomainListSet(NamedDomainList{Name: "a", DomainList: list})
+	filter := newAttrFilter([]string{"x"}, nil)
+	c = getContext(set, &filter)
+	_, err := c.merge("a")
+	require.NoError(t, err)
+	require.NotEmpty(t, c.lists)
 	putContext(c)
+	require.Nil(t, c.lookuper)
+	require.Zero(t, c.filter)
+	require.Empty(t, c.lists)
+	require.Empty(t, c.merged)
 	require.Empty(t, c.stack)
 	require.Empty(t, c.onStack)
 }

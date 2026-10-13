@@ -23,9 +23,18 @@ type DomainListSet struct {
 }
 
 func NewDomainListSet(lists ...NamedDomainList) *DomainListSet {
-	set := &DomainListSet{index: make(map[string]int, len(lists)), lists: make([]NamedDomainList, 0, len(lists))}
+	set := &DomainListSet{
+		index: make(map[string]int, len(lists)),
+		lists: make([]NamedDomainList, 0, len(lists)),
+	}
+
 	set.Add(lists...)
 	return set
+}
+
+func (s *DomainListSet) growInit(n int) {
+	s.index = make(map[string]int, n)
+	s.lists = make([]NamedDomainList, 0, n)
 }
 
 // Add adds the lists, whose rules are appended to the list of the same name if any.

@@ -26,6 +26,18 @@ type Domain struct {
 	Affiliations []string
 }
 
+// domainKey identifies a domain without affiliations, the same as the official.
+type domainKey struct {
+	typ   RuleType
+	value string
+	attrs string
+}
+
+func (d Domain) key() domainKey {
+	// Attrs never contain spaces, and Join does not allocate for less than 2 attrs, which are the most.
+	return domainKey{typ: d.Type, value: d.Value, attrs: strings.Join(d.Attrs, " ")}
+}
+
 func (d Domain) Equal(dd Domain) bool {
 	return d.Type == dd.Type && d.Value == dd.Value &&
 		slices.Equal(d.Attrs, dd.Attrs) &&
