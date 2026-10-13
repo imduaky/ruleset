@@ -1,0 +1,10 @@
+MergeAll returns the first error of the lists sorted by name, error is the error message.
+-- data/a --
+include:ok
+include:b
+-- data/b --
+include:missing
+-- data/ok --
+ok.com
+-- error --
+list not found: a -> b -> missing

@@ -1,0 +1,28 @@
+Values are lowercased except regexps, and attributes are sorted and deduplicated.
+-- input --
+domain: Example.com   @Z @a @z
+-- output --
+example.com @a @z
+-- input --
+REGEXP:^A\.Example$
+-- output --
+regexp:^A\.Example$
+-- input --
+# Only the first colon separates the type.
+regexp:^a:b$
+-- output --
+regexp:^a:b$
+-- input --
+# Must attributes keep their order.
+include:list @z @a @-y @-b
+-- output --
+include:list @z @a @-y @-b
+-- input --
+# Internationalized names are accepted without being converted to punycode.
+FULL:MÜNCHEN.DE
+例子.com
+xn--fsqu00a.例子.com
+-- output --
+full:münchen.de
+例子.com
+xn--fsqu00a.例子.com

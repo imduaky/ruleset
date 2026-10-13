@@ -1,0 +1,59 @@
+Parsing only checks the format, the values are validated by Validate, invalid is a part of its error.
+-- input --
+example.com
+example..com
+-- output --
+example.com
+example..com
+-- invalid --
+domains[1]: invalid domain: "example..com"
+-- input --
+-example.com
+-- output --
+-example.com
+-- invalid --
+domains[0]: invalid domain: "-example.com"
+-- input --
+example.com-
+-- output --
+example.com-
+-- invalid --
+domains[0]: invalid domain: "example.com-"
+-- input --
+exa_mple.com
+-- output --
+exa_mple.com
+-- invalid --
+domains[0]: invalid domain: "exa_mple.com"
+-- input --
+# Internationalized names must be mapped first, see ToASCII.
+full:例子。com
+-- output --
+full:例子。com
+-- invalid --
+domains[0]: invalid domain: "例子。com"
+-- input --
+例子..com
+-- output --
+例子..com
+-- invalid --
+domains[0]: invalid domain: "例子..com"
+-- input --
+# Invalid punycode, which is checked only in internationalized names.
+xn--zz.例子.com
+-- output --
+xn--zz.例子.com
+-- invalid --
+domains[0]: invalid domain: "xn--zz.例子.com"
+-- input --
+keyword:goo_gle
+-- output --
+keyword:goo_gle
+-- invalid --
+domains[0]: invalid keyword: "goo_gle"
+-- input --
+regexp:(
+-- output --
+regexp:(
+-- invalid --
+domains[0]: invalid regexp "("

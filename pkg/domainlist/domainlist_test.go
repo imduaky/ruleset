@@ -11,80 +11,91 @@ import (
 	"testing/iotest"
 
 	"github.com/imduaky/ruleset/pkg/domainlist"
+	"github.com/imduaky/ruleset/pkg/internal/testcase"
 
 	"github.com/stretchr/testify/require"
 )
 
-const sampleText = `# comment
-include:Other-List
-include:ads @ADS @-cn @!cn # trailing comment
+// TestText runs the cases in testdata/text, see testdata/text/sample.txtar.
+func TestText(t *testing.T) {
+	testcase.Run(t, "testdata/text/*.txtar", func(t *testing.T, c testcase.Case) {
+		input := c.Get(t, "input")
+		if message, ok := c.Lookup("error"); ok {
+			var list domainlist.DomainList
+			err := list.UnmarshalText([]byte(input))
+			require.ErrorContains(t, err, "unmarshalText: "+strings.TrimSpace(message))
+			_, err = domainlist.Read(strings.NewReader(input))
+			require.ErrorContains(t, err, strings.TrimSpace(message))
+			return
+		}
 
-Example.COM @b @a @b &Affiliated
-domain:example.org
-FULL:www.example.com @ads
-keyword:Google
-regexp:^odd[1-7]\.example\.org(\.[a-z]{2})?$
-	  sub.example.net  	@cn	`
+		output := c.Get(t, "output")
+		list := parseText(t, input)
+		require.Equal(t, list, parseText(t, strings.ReplaceAll(input, "\n", "\r\n")), "CRLF")
+		data, err := list.MarshalText()
+		require.NoError(t, err)
+		require.Equal(t, output, string(data))
 
-const sampleCanonical = `include:other-list
-include:ads @ads @!cn @-cn
-example.com @a @b &affiliated
-example.org
-full:www.example.com @ads
-keyword:google
-regexp:^odd[1-7]\.example\.org(\.[a-z]{2})?$
-sub.example.net @cn
-`
+		// AppendText appends to the prefix.
+		data, err = list.AppendText([]byte("# head\n"))
+		require.NoError(t, err)
+		require.Equal(t, "# head\n"+output, string(data))
 
-func sampleList() domainlist.DomainList {
-	return domainlist.DomainList{
-		Inclusions: []domainlist.Inclusion{
-			{Name: "other-list"},
-			{Name: "ads", MustAttrs: []string{"ads", "!cn"}, BanAttrs: []string{"cn"}},
-		},
-		Domains: []domainlist.Domain{
-			{Type: domainlist.RuleTypeDomain, Value: "example.com", Attrs: []string{"a", "b"}, Affiliations: []string{"affiliated"}},
-			{Type: domainlist.RuleTypeDomain, Value: "example.org"},
-			{Type: domainlist.RuleTypeFull, Value: "www.example.com", Attrs: []string{"ads"}},
-			{Type: domainlist.RuleTypeKeyword, Value: "google"},
-			{Type: domainlist.RuleTypeRegexp, Value: `^odd[1-7]\.example\.org(\.[a-z]{2})?$`},
-			{Type: domainlist.RuleTypeDomain, Value: "sub.example.net", Attrs: []string{"cn"}},
-		},
-	}
+		// The output is canonical.
+		decoded := parseText(t, output)
+		require.Equal(t, list, decoded)
+		again, err := decoded.MarshalText()
+		require.NoError(t, err)
+		require.Equal(t, output, string(again))
+
+		read, err := domainlist.Read(strings.NewReader(input))
+		require.NoError(t, err)
+		require.Equal(t, list, *read)
+		var buffer bytes.Buffer
+		require.NoError(t, domainlist.Write(&buffer, *read))
+		require.Equal(t, output, buffer.String())
+
+		if message, ok := c.Lookup("invalid"); ok {
+			require.ErrorContains(t, list.Validate(), strings.TrimSpace(message))
+		} else {
+			require.NoError(t, list.Validate())
+		}
+	})
 }
 
-func TestUnmarshal(t *testing.T) {
-	for name, text := range map[string]string{
-		"LF":   sampleText,
-		"CRLF": strings.ReplaceAll(sampleText, "\n", "\r\n"),
-	} {
-		var list domainlist.DomainList
-		require.NoError(t, list.UnmarshalText([]byte(text)), name)
-		require.Equal(t, sampleList(), list, name)
-	}
+// TestToASCII runs the cases in testdata/ascii.txtar.
+func TestToASCII(t *testing.T) {
+	testcase.Run(t, "testdata/ascii.txtar", func(t *testing.T, c testcase.Case) {
+		input := parseText(t, c.Get(t, "input"))
+		list := parseText(t, c.Get(t, "input"))
+		err := list.ToASCII()
+		if message, ok := c.Lookup("error"); ok {
+			require.ErrorContains(t, err, strings.TrimSpace(message))
+			// It is not modified on error.
+			require.Equal(t, input, list)
+			return
+		}
+		require.NoError(t, err)
+		data, err := list.MarshalText()
+		require.NoError(t, err)
+		require.Equal(t, c.Get(t, "output"), string(data))
+
+		// Each domain is converted the same, and converting again changes nothing.
+		for i, d := range input.Domains {
+			require.NoError(t, d.ToASCII())
+			require.Equal(t, list.Domains[i], d)
+		}
+		again := list
+		require.NoError(t, again.ToASCII())
+		require.Equal(t, list, again)
+	})
 }
 
-func TestMarshal(t *testing.T) {
-	data, err := sampleList().MarshalText()
-	require.NoError(t, err)
-	require.Equal(t, sampleCanonical, string(data))
-
-	prefix := []byte("# head\n")
-	data, err = sampleList().AppendText(prefix)
-	require.NoError(t, err)
-	require.Equal(t, string(prefix)+sampleCanonical, string(data))
-}
-
-func TestRoundTrip(t *testing.T) {
-	data, err := sampleList().MarshalText()
-	require.NoError(t, err)
-	var decoded domainlist.DomainList
-	require.NoError(t, decoded.UnmarshalText(data))
-	require.Equal(t, sampleList(), decoded)
-
-	again, err := decoded.MarshalText()
-	require.NoError(t, err)
-	require.Equal(t, data, again)
+func parseText(t testing.TB, text string) domainlist.DomainList {
+	t.Helper()
+	var list domainlist.DomainList
+	require.NoError(t, list.UnmarshalText([]byte(text)))
+	return list
 }
 
 func TestEmpty(t *testing.T) {
@@ -102,47 +113,20 @@ func TestEmpty(t *testing.T) {
 	require.Equal(t, domainlist.DomainList{Inclusions: []domainlist.Inclusion{{Name: "a"}}}, list)
 }
 
-func TestUnmarshalNormalize(t *testing.T) {
-	var list domainlist.DomainList
-	require.NoError(t, list.UnmarshalText([]byte(`domain: Example.com   @Z @a @z`)))
-	require.Equal(t, []domainlist.Domain{{Type: domainlist.RuleTypeDomain, Value: "example.com", Attrs: []string{"a", "z"}}}, list.Domains)
+func TestValidate(t *testing.T) {
+	require.NoError(t, domainlist.DomainList{}.Validate())
 
-	// The case of a regexp is kept.
-	require.NoError(t, list.UnmarshalText([]byte(`REGEXP:^A\.Example$`)))
-	require.Equal(t, []domainlist.Domain{{Type: domainlist.RuleTypeRegexp, Value: `^A\.Example$`}}, list.Domains)
-
-	// Only the first SymbolType separates the type.
-	require.NoError(t, list.UnmarshalText([]byte(`regexp:^a:b$`)))
-	require.Equal(t, `^a:b$`, list.Domains[0].Value)
-}
-
-func TestUnmarshalErrors(t *testing.T) {
-	for line, message := range map[string]string{
-		"full:":                `invalid domain: ""`,
-		":example.com":         `unknown rule type: ""`,
-		"unknown:example.com":  `unknown rule type: "unknown"`,
-		"example..com":         `invalid domain: "example..com"`,
-		"-example.com":         `invalid domain`,
-		"example.com-":         `invalid domain`,
-		"exa_mple.com":         `invalid domain`,
-		"keyword:goo_gle":      `invalid keyword: "goo_gle"`,
-		"regexp:(":             `invalid regexp "("`,
-		"example.com @":        `invalid attribute: ""`,
-		"example.com @a-b":     `invalid attribute: "a-b"`,
-		"example.com &":        `invalid affiliation: ""`,
-		"example.com &a_b":     `invalid affiliation: "a_b"`,
-		"example.com attr":     `unknown field: "attr"`,
-		"include:":             `invalid included list name: ""`,
-		"include:a_b":          `invalid included list name: "a_b"`,
-		"include:a &b":         `affiliation is not allowed for inclusion`,
-		"include:a @":          `invalid must attribute: ""`,
-		"include:a @-":         `invalid ban attribute: ""`,
-		"include:a @-a-b":      `invalid ban attribute: "a-b"`,
-		"include:a other-list": `unknown field: "other-list"`,
+	for message, list := range map[string]domainlist.DomainList{
+		`domains[0]: unknown rule type: ""`:           {Domains: []domainlist.Domain{{Value: "example.com"}}},
+		`domains[0]: invalid value: ""`:               {Domains: []domainlist.Domain{{Type: domainlist.RuleTypeKeyword}}},
+		`domains[0]: invalid domain: "Example.com"`:   {Domains: []domainlist.Domain{{Type: domainlist.RuleTypeDomain, Value: "Example.com"}}},
+		`domains[1]: invalid keyword: "Google"`:       {Domains: []domainlist.Domain{{Type: domainlist.RuleTypeFull, Value: "a.com"}, {Type: domainlist.RuleTypeKeyword, Value: "Google"}}},
+		`domains[0]: invalid regexp "a)"`:             {Domains: []domainlist.Domain{{Type: domainlist.RuleTypeRegexp, Value: "a)"}}},
+		`domains[0]: invalid attribute: "Ads"`:        {Domains: []domainlist.Domain{{Type: domainlist.RuleTypeFull, Value: "a.com", Attrs: []string{"Ads"}}}},
+		`inclusions[0]: invalid included list name`:   {Inclusions: []domainlist.Inclusion{{}}},
+		`inclusions[0]: invalid ban attribute: "a b"`: {Inclusions: []domainlist.Inclusion{{Name: "a", BanAttrs: []string{"a b"}}}},
 	} {
-		var list domainlist.DomainList
-		err := list.UnmarshalText([]byte("example.com\n# comment\n" + line))
-		require.ErrorContains(t, err, "line 3: "+message, line)
+		require.ErrorContains(t, list.Validate(), message)
 	}
 }
 
@@ -150,11 +134,10 @@ func TestMarshalErrors(t *testing.T) {
 	for message, list := range map[string]domainlist.DomainList{
 		`domains[0]: unknown rule type: ""`:           {Domains: []domainlist.Domain{{Value: "example.com"}}},
 		`domains[0]: unknown rule type: "include"`:    {Domains: []domainlist.Domain{{Type: domainlist.PrefixInclude, Value: "a"}}},
-		`domains[0]: invalid domain: "Example.com"`:   {Domains: []domainlist.Domain{{Type: domainlist.RuleTypeDomain, Value: "Example.com"}}},
-		`domains[1]: invalid keyword: "Google"`:       {Domains: []domainlist.Domain{{Type: domainlist.RuleTypeFull, Value: "a.com"}, {Type: domainlist.RuleTypeKeyword, Value: "Google"}}},
-		`domains[0]: invalid regexp: ""`:              {Domains: []domainlist.Domain{{Type: domainlist.RuleTypeRegexp}}},
-		`domains[0]: invalid regexp: "a b"`:           {Domains: []domainlist.Domain{{Type: domainlist.RuleTypeRegexp, Value: "a b"}}},
-		`domains[0]: invalid regexp: "a#b"`:           {Domains: []domainlist.Domain{{Type: domainlist.RuleTypeRegexp, Value: "a#b"}}},
+		`domains[0]: invalid value: ""`:               {Domains: []domainlist.Domain{{Type: domainlist.RuleTypeRegexp}}},
+		`domains[1]: invalid value: "a b"`:            {Domains: []domainlist.Domain{{Type: domainlist.RuleTypeFull, Value: "a.com"}, {Type: domainlist.RuleTypeRegexp, Value: "a b"}}},
+		`domains[0]: invalid value: "a#b"`:            {Domains: []domainlist.Domain{{Type: domainlist.RuleTypeRegexp, Value: "a#b"}}},
+		`domains[0]: invalid value: "a.com\n"`:        {Domains: []domainlist.Domain{{Type: domainlist.RuleTypeDomain, Value: "a.com\n"}}},
 		`domains[0]: invalid attribute: "Ads"`:        {Domains: []domainlist.Domain{{Type: domainlist.RuleTypeFull, Value: "a.com", Attrs: []string{"Ads"}}}},
 		`domains[0]: invalid affiliation: "a b"`:      {Domains: []domainlist.Domain{{Type: domainlist.RuleTypeFull, Value: "a.com", Affiliations: []string{"a b"}}}},
 		`inclusions[0]: invalid included list name`:   {Inclusions: []domainlist.Inclusion{{}}},
@@ -169,6 +152,14 @@ func TestMarshalErrors(t *testing.T) {
 		require.Error(t, err, message)
 		require.Equal(t, "head", string(data), message)
 	}
+
+	// Values are not validated.
+	data, err := domainlist.DomainList{Domains: []domainlist.Domain{
+		{Type: domainlist.RuleTypeDomain, Value: "Example.com"},
+		{Type: domainlist.RuleTypeRegexp, Value: "("},
+	}}.MarshalText()
+	require.NoError(t, err)
+	require.Equal(t, "Example.com\nregexp:(\n", string(data))
 }
 
 func TestDomainText(t *testing.T) {
@@ -185,6 +176,10 @@ func TestDomainText(t *testing.T) {
 	require.NoError(t, d.UnmarshalText([]byte("example.com")))
 	require.Equal(t, domainlist.Domain{Type: domainlist.RuleTypeDomain, Value: "example.com"}, d)
 	require.Equal(t, "example.com", d.String())
+
+	// The value is not validated.
+	require.NoError(t, d.UnmarshalText([]byte("keyword:goo_gle")))
+	require.ErrorContains(t, d.Validate(), `invalid keyword: "goo_gle"`)
 
 	for _, text := range []string{"", "include:list", "example.com # comment", "example.com\nexample.org"} {
 		require.Error(t, d.UnmarshalText([]byte(text)), text)
@@ -215,23 +210,12 @@ func TestInclusionText(t *testing.T) {
 	require.ErrorContains(t, err, `marshalText: invalid included list name: "List"`)
 }
 
-func TestReadWrite(t *testing.T) {
-	list, err := domainlist.Read(strings.NewReader(sampleText))
-	require.NoError(t, err)
-	require.Equal(t, sampleList(), *list)
-
-	var buffer bytes.Buffer
-	require.NoError(t, domainlist.Write(&buffer, *list))
-	require.Equal(t, sampleCanonical, buffer.String())
-
+func TestReadWriteErrors(t *testing.T) {
 	errRead := errors.New("read error")
-	_, err = domainlist.Read(iotest.ErrReader(errRead))
+	_, err := domainlist.Read(iotest.ErrReader(errRead))
 	require.ErrorIs(t, err, errRead)
 
-	_, err = domainlist.Read(strings.NewReader("example..com"))
-	require.ErrorContains(t, err, "line 1: invalid domain")
-
-	buffer.Reset()
+	var buffer bytes.Buffer
 	require.Error(t, domainlist.Write(&buffer, domainlist.DomainList{Domains: []domainlist.Domain{{}}}))
 	require.Zero(t, buffer.Len())
 }
@@ -246,6 +230,7 @@ func TestDataFiles(t *testing.T) {
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
 	require.NotEmpty(t, entries)
+	var lists []domainlist.NamedDomainList
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -266,6 +251,23 @@ func TestDataFiles(t *testing.T) {
 		again, err := decoded.MarshalText()
 		require.NoError(t, err, path)
 		require.Equal(t, data, again, path)
+
+		require.NoError(t, list.Validate(), path)
+		lists = append(lists, domainlist.NamedDomainList{Name: entry.Name(), DomainList: list})
+	}
+
+	all, err := domainlist.NewMerger(domainlist.NewDomainListSet(lists...)).MergeAll()
+	require.NoError(t, err)
+	require.Equal(t, len(lists), all.Len())
+	// The files are looked up lazily, and merged the same.
+	fromFiles, err := domainlist.NewMerger(domainlist.FileLookuper{FS: os.DirFS(dir)}).MergeAll()
+	require.NoError(t, err)
+	require.Equal(t, all, fromFiles)
+	for list, err := range all.All() {
+		require.NoError(t, err)
+		name := list.Name
+		require.Empty(t, list.Inclusions, name)
+		require.NoError(t, list.Validate(), name)
 	}
 }
 

@@ -1,0 +1,106 @@
+Each case fails to merge the list named by merge with the data/<name> lists, error is the error message,
+which has the path of inclusions with the circle in brackets. once is the list merged once if it is merged.
+-- merge --
+a
+-- data/a --
+# a includes b, and b includes a.
+include:b
+a.com
+-- data/b --
+include:a
+b.com
+-- error --
+circular inclusion: [a -> b -> a]
+-- once --
+include:a
+a.com
+b.com
+-- merge --
+a
+-- data/a --
+# a includes itself.
+include:a
+a.com
+-- error --
+circular inclusion: [a -> a]
+-- once --
+include:a
+a.com
+-- merge --
+top
+-- data/top --
+include:ok
+include:self
+own.com
+-- data/ok --
+ok.com
+-- data/self --
+include:self
+self.com
+-- error --
+circular inclusion: top -> [self -> self]
+-- merge --
+top
+-- data/top --
+include:ok
+include:a
+-- data/ok --
+ok.com
+-- data/a --
+include:b
+-- data/b --
+include:c
+-- data/c --
+include:a
+-- error --
+circular inclusion: top -> [a -> b -> c -> a]
+-- merge --
+top
+-- data/top --
+# Filters do not break circles.
+include:a @x
+-- data/a --
+include:b @-y
+-- data/b --
+include:a @z
+-- error --
+circular inclusion: top -> [a -> b -> a]
+-- merge --
+top
+-- data/top --
+# The circle is not from the root.
+include:a
+-- data/a --
+include:b
+-- data/b --
+include:c
+-- data/c --
+include:b
+-- error --
+circular inclusion: top -> a -> [b -> c -> b]
+-- merge --
+top
+-- data/top --
+include:ok
+include:missing
+-- data/ok --
+ok.com
+-- error --
+list not found: top -> missing
+-- merge --
+top
+-- data/top --
+include:nested
+-- data/nested --
+include:broken
+-- data/broken --
+include:ok
+include:missing
+-- data/ok --
+ok.com
+-- error --
+list not found: top -> nested -> broken -> missing
+-- merge --
+missing
+-- error --
+list not found: missing

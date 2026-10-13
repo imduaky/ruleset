@@ -1,0 +1,13 @@
+MergeAll returns the first error of the lists sorted by name, error is the error message.
+-- data/a --
+include:b
+a.com
+-- data/b --
+include:a
+b.com
+-- data/ok --
+ok.com
+-- data/z --
+include:missing
+-- error --
+circular inclusion: [a -> b -> a]

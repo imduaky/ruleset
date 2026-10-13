@@ -1,0 +1,56 @@
+Each case filters the domains of input by filter, the attributes of an inclusion, output is the filtered domains.
+-- input --
+a.com
+b.com @ads
+c.com @ads @cn
+d.com @cn
+include:other
+-- filter --
+-- output --
+a.com
+b.com @ads
+c.com @ads @cn
+d.com @cn
+-- input --
+a.com
+b.com @ads
+c.com @ads @cn
+d.com @cn
+-- filter --
+@ads
+-- output --
+b.com @ads
+c.com @ads @cn
+-- input --
+a.com
+b.com @ads
+c.com @ads @cn
+d.com @cn
+-- filter --
+@-cn
+-- output --
+a.com
+b.com @ads
+-- input --
+a.com
+b.com @ads
+c.com @ads @cn
+d.com @cn
+-- filter --
+@ads @-cn
+-- output --
+b.com @ads
+-- input --
+a.com
+b.com @ads
+c.com @ads @cn
+d.com @cn
+-- filter --
+@cn @ads
+-- output --
+c.com @ads @cn
+-- input --
+a.com @ads
+-- filter --
+@ads @-ads
+-- output --

@@ -20,8 +20,3 @@ const (
 	RuleTypeKeyword RuleType = "keyword"
 	RuleTypeRegexp  RuleType = "regexp"
 )
-
-const (
-	maxDomainLen = 253 // Maximum length of a domain name
-	maxLabelLen  = 63  // Maximum length of a label of a domain name
-)

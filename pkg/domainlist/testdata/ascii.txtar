@@ -1,0 +1,44 @@
+Each case converts the internationalized domain names of input to punycode by ToASCII,
+output is the converted list, or error is a part of the error message.
+-- input --
+例子.com
+full:münchen.de @de
+日本.jp &asia
+faß.de
+ドメイン名例.jp
+مثال.إختبار
+example.com
+xn--fsqu00a.例子.com
+-- output --
+xn--fsqu00a.com
+full:xn--mnchen-3ya.de @de
+xn--wgv71a.jp &asia
+xn--fa-hia.de
+xn--eckwd4c7cu47r2wf.jp
+xn--mgbh0fb.xn--kgbechtv
+example.com
+xn--fsqu00a.xn--fsqu00a.com
+-- input --
+# Names are mapped by UTS #46, the fullwidth and the ideographic full stop.
+ｅｘａｍｐｌｅ.com
+例子。com
+-- output --
+example.com
+xn--fsqu00a.com
+-- input --
+# Keywords and regexps are kept as is, a part of a label could not be converted alone.
+keyword:例子
+regexp:^例子\.com$
+-- output --
+keyword:例子
+regexp:^例子\.com$
+-- input --
+# ASCII names are kept as is, even the invalid ones.
+example..com
+-- output --
+example..com
+-- input --
+例子.com
+-例子.com
+-- error --
+domains[1]: invalid domain "-例子.com": idna: invalid label "-例子"

@@ -1,0 +1,194 @@
+Each case merges the list named by merge with the data/<name> lists, see Merger.
+  output: the merged list.
+  once: the list merged once by MergeOnce, which might have inclusions.
+  attrs: the attributes of MergeAttrs separated by spaces, e.g. "ads -cn", and filtered is its list.
+-- merge --
+top
+-- data/top --
+include:mid
+include:ads @ads @-cn
+top.com
+dup.com @x &other
+-- data/mid --
+include:leaf
+mid.com
+dup.com @x
+dup.com
+-- data/leaf --
+leaf.com &top
+full:leaf.com
+keyword:leaf
+regexp:^leaf$
+-- data/ads --
+ads.com @ads
+ads.cn @ads @cn
+noattr.com
+ads.org @ads @other
+-- output --
+top.com
+dup.com @x &other
+mid.com
+dup.com
+leaf.com
+full:leaf.com
+keyword:leaf
+regexp:^leaf$
+ads.com @ads
+ads.org @ads @other
+-- once --
+include:leaf
+top.com
+dup.com @x &other
+mid.com
+dup.com
+ads.com @ads
+ads.org @ads @other
+-- attrs --
+ads -other
+-- filtered --
+ads.com @ads
+-- merge --
+l
+-- data/l --
+# Own domains are kept as is, even the duplicates.
+include:a
+l.com
+l.com
+a.com @x &b
+-- data/a --
+a.com
+a.com @x
+-- output --
+l.com
+l.com
+a.com @x &b
+a.com
+-- merge --
+l
+-- data/l --
+# The same list is included with different filters.
+include:a @x
+include:a @-x
+include:a
+-- data/a --
+a.com
+a.com @x
+-- output --
+a.com @x
+a.com
+-- merge --
+top
+-- data/top --
+# A diamond, left and right include base.
+include:left
+include:right
+include:left @r
+-- data/left --
+include:base @l
+left.com
+-- data/right --
+include:base @r
+right.com
+-- data/base --
+l.com @l
+r.com @r
+lr.com @l @r
+-- output --
+left.com
+l.com @l
+lr.com @l @r
+right.com
+r.com @r
+-- once --
+include:base @l
+include:base @r
+include:base @l @r
+left.com
+right.com
+-- merge --
+top
+-- data/top --
+# Filters on the path of inclusions are all applied.
+include:b @x
+-- data/b --
+include:c @-y
+include:d @-x
+b.com @x
+-- data/c --
+x.com @x
+xy.com @x @y
+plain.com
+-- data/d --
+d.com @x
+-- output --
+b.com @x
+x.com @x
+-- once --
+include:c @x @-y
+include:d @x @-x
+b.com @x
+-- merge --
+top
+-- data/top --
+# c is merged once and reused for both a and b, with different filters.
+include:a
+include:b
+-- data/a --
+include:c
+a.com
+-- data/b --
+include:c @cn
+b.com
+-- data/c --
+example.com
+example.cn @cn
+-- output --
+a.com
+example.com
+example.cn @cn
+b.com
+-- once --
+include:c
+include:c @cn
+a.com
+b.com
+-- attrs --
+-cn
+-- filtered --
+a.com
+example.com
+b.com
+-- merge --
+a
+-- data/a --
+# Nothing to merge.
+a.com
+a.com
+-- output --
+a.com
+a.com
+-- once --
+a.com
+a.com
+-- merge --
+top
+-- data/top --
+# The filter of an inclusion applies to all lists included by it, but not to the others.
+include:a @cn
+include:c
+-- data/a --
+include:b
+example.com @cn
+-- data/b --
+a.net
+b.net @cn
+-- data/c --
+include:b
+-- output --
+example.com @cn
+b.net @cn
+a.net
+-- once --
+include:b @cn
+include:b
+example.com @cn

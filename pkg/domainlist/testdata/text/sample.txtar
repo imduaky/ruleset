@@ -1,0 +1,33 @@
+Each case is parsed from input, which is checked as well with CRLF line endings.
+  output: the canonical text written by MarshalText, which is parsed back to the same list.
+  invalid: the error of Validate if the list is invalid, see invalid.txtar.
+-- input --
+# comment
+include:Other-List
+include:ads @ADS @-cn @!cn # trailing comment
+
+Example.COM @b @a @b &Affiliated
+domain:example.org
+FULL:www.example.com @ads
+keyword:Google
+regexp:^odd[1-7]\.example\.org(\.[a-z]{2})?$
+	  sub.example.net  	@cn
+-- output --
+include:other-list
+include:ads @ads @!cn @-cn
+example.com @a @b &affiliated
+example.org
+full:www.example.com @ads
+keyword:google
+regexp:^odd[1-7]\.example\.org(\.[a-z]{2})?$
+sub.example.net @cn
+-- input --
+-- output --
+-- input --
+# comment only
+
+-- output --
+-- input --
+include:a
+-- output --
+include:a

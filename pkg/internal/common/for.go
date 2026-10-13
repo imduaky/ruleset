@@ -29,3 +29,34 @@ func Reduce0[A, E any, S ~[]E](fn func(A, E) A, init A, s S) A {
 	}
 	return acc
 }
+
+func Unique[T comparable, S []T](s S) S {
+	if len(s) == 0 {
+		return slices.Clone(s)
+	}
+
+	seen := make(map[T]bool)
+	ans := make(S, 0, len(s))
+	for _, a := range s {
+		if seen[a] {
+			continue
+		}
+		seen[a] = true
+		ans = append(ans, a)
+	}
+	return ans
+}
+
+func UniqueCount[T comparable, S []T](s S) int {
+	if len(s) == 0 {
+		return 0
+	}
+	seen := make(map[T]bool)
+	for _, a := range s {
+		if seen[a] {
+			continue
+		}
+		seen[a] = true
+	}
+	return len(seen)
+}

@@ -1,0 +1,28 @@
+MergeAll merges all data/<name> lists, all/<name> are the merged lists.
+-- data/a --
+include:c
+a.com
+-- data/b --
+include:c @cn
+b.com
+-- data/c --
+include:d
+example.com &d
+example.cn @cn
+-- data/d --
+d.com @cn
+-- all/a --
+a.com
+example.com
+example.cn @cn
+d.com @cn
+-- all/b --
+b.com
+example.cn @cn
+d.com @cn
+-- all/c --
+example.com &d
+example.cn @cn
+d.com @cn
+-- all/d --
+d.com @cn

@@ -4,6 +4,7 @@ import (
 	"encoding"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -13,8 +14,6 @@ var (
 	_ encoding.TextUnmarshaler = (*Inclusion)(nil)
 )
 
-// Inclusion adds the rules of another list, e.g. `include:other-list @ads @-cn`
-// only adds the rules with all MustAttrs and without any of BanAttrs.
 type Inclusion struct {
 	Name string
 
@@ -22,12 +21,18 @@ type Inclusion struct {
 	BanAttrs  []string
 }
 
+func (inc Inclusion) Equal(ii Inclusion) bool {
+	return inc.Name == ii.Name &&
+		slices.Equal(inc.MustAttrs, ii.MustAttrs) &&
+		slices.Equal(inc.BanAttrs, ii.BanAttrs)
+}
+
 func (inc Inclusion) String() string {
 	return string(inc.append(make([]byte, 0, inc.textLen())))
 }
 
 func (inc Inclusion) AppendText(b []byte) ([]byte, error) {
-	err := inc.validate()
+	err := inc.check()
 	if err != nil {
 		return b, err
 	}
@@ -55,7 +60,6 @@ func (inc *Inclusion) UnmarshalText(data []byte) error {
 	return nil
 }
 
-// parseInclusion parses the rule after `include:`, the same as the official.
 func parseInclusion(rule string) (Inclusion, error) {
 	name, rest := cutField(rule)
 	inc := Inclusion{Name: strings.ToLower(name)}
@@ -75,14 +79,14 @@ func parseInclusion(rule string) (Inclusion, error) {
 		}
 	}
 
-	err := inc.validate()
+	err := inc.check()
 	if err != nil {
 		return Inclusion{}, err
 	}
 	return inc, nil
 }
 
-func (inc Inclusion) validate() error {
+func (inc Inclusion) check() error {
 	if !isListName(inc.Name) {
 		return fmt.Errorf("invalid included list name: %q", inc.Name)
 	}
@@ -93,13 +97,11 @@ func (inc Inclusion) validate() error {
 	return validateAll(inc.BanAttrs, isAttr, "ban attribute")
 }
 
-// textLen returns the exact length written by append.
 func (inc Inclusion) textLen() int {
 	return len(PrefixInclude) + len(SymbolType) + len(inc.Name) +
 		fieldsLen(SymbolAttribute, inc.MustAttrs) + fieldsLen(SymbolAttribute+SymbolBan, inc.BanAttrs)
 }
 
-// append writes `include:name @must @-ban`.
 func (inc Inclusion) append(b []byte) []byte {
 	b = append(b, PrefixInclude+SymbolType...)
 	b = append(b, inc.Name...)

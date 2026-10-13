@@ -1,0 +1,66 @@
+Each case fails to be parsed, error is a part of the error message.
+-- input --
+example.com
+full:
+-- error --
+line 2: invalid value: ""
+-- input --
+regexp:# a comment
+-- error --
+line 1: invalid value: ""
+-- input --
+:example.com
+-- error --
+line 1: unknown rule type: ""
+-- input --
+unknown:example.com
+-- error --
+line 1: unknown rule type: "unknown"
+-- input --
+example.com @
+-- error --
+line 1: invalid attribute: ""
+-- input --
+example.com @a-b
+-- error --
+line 1: invalid attribute: "a-b"
+-- input --
+example.com &
+-- error --
+line 1: invalid affiliation: ""
+-- input --
+example.com &a_b
+-- error --
+line 1: invalid affiliation: "a_b"
+-- input --
+example.com attr
+-- error --
+line 1: unknown field: "attr"
+-- input --
+include:
+-- error --
+line 1: invalid included list name: ""
+-- input --
+include:a_b
+-- error --
+line 1: invalid included list name: "a_b"
+-- input --
+include:a &b
+-- error --
+line 1: affiliation is not allowed for inclusion
+-- input --
+include:a @
+-- error --
+line 1: invalid must attribute: ""
+-- input --
+include:a @-
+-- error --
+line 1: invalid ban attribute: ""
+-- input --
+include:a @-a-b
+-- error --
+line 1: invalid ban attribute: "a-b"
+-- input --
+include:a other-list
+-- error --
+line 1: unknown field: "other-list"
